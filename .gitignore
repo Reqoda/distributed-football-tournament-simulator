@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets (keep the example file)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build output and coverage
+dist/
+build/
+coverage/
+
+# Local data (database dumps, benchmark raw output)
+data/
+*.dump
+
+# OS and editor clutter
+.DS_Store
+.idea/
+.vscode/
+.zed/
+*.swp
