@@ -1,4 +1,4 @@
-# worldcup-cluster
+# distributed-football-tournament-simulator
 
 A small distributed task-processing system that runs on four machines in my
 home network and uses them to simulate a World Cup tournament.
