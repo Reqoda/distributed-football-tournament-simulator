@@ -9,9 +9,34 @@ fault tolerance, persistence and measurement.
 
 ## Status
 
-Early development. **Stage 1 of 8**, nothing to run yet.
+Early development. **Stage 1 of 8** (core loop) is in progress.
 See [ROADMAP.md](ROADMAP.md) for the plan and [ARCHITECTURE.md](ARCHITECTURE.md)
 for the design decisions and their trade-offs.
+
+## Running it
+
+Requires Node.js 20 or newer. There are no dependencies to install.
+
+```bash
+npm run coordinator        # terminal 1: task queue on port 3000
+npm run worker             # terminal 2: pulls tasks and runs them
+npm run smoke              # terminal 3: end-to-end check of the core loop
+```
+
+A worker on another machine only needs the coordinator's address:
+
+```bash
+COORDINATOR_URL=http://192.168.1.10:3000 WORKER_ID=athlon npm run worker
+```
+
+## Layout
+
+```
+coordinator/   task queue and HTTP API
+worker/        pull loop, and simulate.js with the pluggable runTask()
+shared/        task format shared by both sides
+scripts/       smoke test (more tooling later)
+```
 
 ## Overview
 

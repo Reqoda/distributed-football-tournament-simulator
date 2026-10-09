@@ -1,0 +1,15 @@
+{
+  "name": "distributed-football-tournament-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small distributed task-processing system that simulates a World Cup across heterogeneous home machines.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "coordinator": "node coordinator/server.js",
+    "worker": "node worker/worker.js",
+    "smoke": "node scripts/smoke.js"
+  }
+}
