@@ -2,10 +2,11 @@
 
 > Draft. Each stage adds its own decisions to this file.
 > The **[OPEN]** tag marks decisions that are not final yet.
+> This document describes the target design. Look at [Road Map](ROADMAP.md) to what is ready.
 
 ## Goal
 
-Run four home machines as a single cluster and execute a World Cup
+Run three home machines as a single cluster and execute a World Cup
 simulation with a real computational load, in a distributed way. This is not
 a "DevOps tool": the point is to actually face and solve distributed-systems
 problems such as task distribution, fault tolerance and measurement.
@@ -67,7 +68,7 @@ twice produces the same result.
 ### Pluggable `runTask()`
 v1 uses a statistical model (Poisson / Dixon-Coles); v2 uses an ML model.
 The worker and the coordinator do not change. The ML model is trained in a
-separate repository (`football-strength-model`) and shipped as `.npy` weights;
+separate repository (`distributed-football-tournament-simulator`) and shipped as `.npy` weights;
 workers run inference with NumPy only, so old CPUs like the Athlon do not
 hit AVX dependency problems.
 
@@ -75,8 +76,47 @@ hit AVX dependency problems.
 - **Node.js** for coordinator and worker. Go is only a separate learning track.
 - **PostgreSQL** for queue and state. Redis is added only if a real need appears.
 - **Docker Compose** for deployment. Kubernetes would be unnecessary
-  complexity for four machines and is out of scope for v1.
+  complexity for three machines and is out of scope for v1.
 - **Prometheus** for metrics.
+
+## Stage 1: core loop
+ 
+What exists: a coordinator with an in-memory task store, workers that pull
+tasks over HTTP, and a smoke test that checks the whole loop.
+ 
+### Task lifecycle
+A task moves `pending -> running -> done`. The coordinator makes both
+transitions: `claimNext` marks a task running when a worker asks for work, and
+`complete` marks it done when the result arrives. A worker never changes a
+task's status itself; it only asks for work and reports a result.
+ 
+### Claiming a task is atomic
+`claimNext` finds the oldest pending task and marks it running in one step, so
+two workers can never receive the same task. This holds because Node.js runs
+JavaScript on a single thread and the loop contains no `await`, so no other
+request can run between the check and the update. A database will not give this
+for free: stage 3 has to guarantee it explicitly.
+ 
+### Completing a task that is not running returns 409
+`POST /tasks/:id/result` only succeeds for a running task. A pending or already
+finished task gets `409 Conflict`, an unknown id gets `404`. This keeps a late
+or duplicate result from overwriting the first one, which matters as soon as
+stage 2 can hand the same task to a second worker.
+ 
+### `store.js` is a four-function contract
+`server.js` only knows `add`, `get`, `claimNext` and `complete`, and the shapes
+they return (`complete` gives `{ ok, task }` or `{ ok: false, reason }`). It
+does not know where tasks are kept. Stage 3 replaces the in-memory `Map` with
+PostgreSQL behind the same four functions, so `server.js` does not change.
+ 
+### Known limitations
+- The worker does not check the response code of its result upload; a rejected
+  result is only logged. (stage 2)
+- If a worker dies, its task stays `running` forever; nothing returns it to the
+  queue. (stage 2)
+- Tasks live in memory and are lost when the coordinator restarts. (stage 3)
+- `claimNext` scans from the oldest task, so it slows down as finished tasks
+  pile up. (stage 3, with an index)
 
 ## Task unit **[OPEN]**
 
