@@ -2,7 +2,7 @@
 
 Each stage ends with something that runs. Completed stages are marked `[x]`.
 
-- [ ] **1. Core loop:** add a task, a worker pulls it, the result is stored (in memory)
+- [x] **1. Core loop:** add a task, a worker pulls it, the result is stored (in memory)
 - [ ] **2. Fault tolerance:** if a worker dies, its task returns to the queue after a timeout (heartbeat + timeout); re-runnable tasks via seeded randomness
 - [ ] **3. PostgreSQL:** tasks survive a coordinator restart
 - [ ] **4. Real workload** ⚠️ *to be reviewed*: tournament simulation (Poisson / Dixon-Coles), iterations split into batches. The task unit and scope will be re-evaluated when this stage is reached.
