@@ -5,6 +5,8 @@
 //
 // It adds a task, waits for a worker to finish it and checks the result.
 // It also checks the error cases of the two result endpoints.
+const http = require('node:http');
+
 const COORDINATOR = process.env.COORDINATOR_URL || 'http://localhost:3000';
 const TIMEOUT_MS = 10_000;
 
@@ -24,6 +26,21 @@ async function call(method, path, body) {
   });
   const text = await res.text();
   return { status: res.status, body: text ? JSON.parse(text) : null };
+}
+
+
+// Sends a request with exact control over the headers (fetch refuses some).
+// Resolves { status } when the server answers, { error } when it does not.
+function rawRequest(method, path, headers = {}, body) {
+  const { hostname, port } = new URL(COORDINATOR);
+  return new Promise((resolve) => {
+    const req = http.request({ hostname, port, method, path, headers }, (res) => {
+      res.resume();
+      res.on('end', () => resolve({ status: res.statusCode }));
+    });
+    req.on('error', (err) => resolve({ error: err.code || err.message }));
+    req.end(body);
+  });
 }
 
 async function main() {
@@ -76,6 +93,17 @@ async function main() {
 
   const after = await call('GET', `/tasks/${id}`);
   check('rejected second result did not overwrite the first', after.body?.result?.homeGoals !== 9, JSON.stringify(after.body?.result));
+
+  // 4. bad requests must get an error answer, and must never kill the coordinator.
+  //    Keep this last: if the coordinator dies here, the earlier results still count.
+  const badJson = await rawRequest('POST', '/tasks', { 'Content-Type': 'application/json' }, '{not json');
+  check('POST /tasks with invalid JSON returns 400', badJson.status === 400, JSON.stringify(badJson));
+
+  const oddHost = await rawRequest('GET', '/tasks/does-not-exist', { Host: 'bad host' });
+  check('a request with a broken Host header gets an answer, not a crash', oddHost.status !== undefined && oddHost.status < 500, JSON.stringify(oddHost));
+
+  const alive = await rawRequest('GET', '/tasks/does-not-exist');
+  check('the coordinator is still running afterwards', alive.status === 404, JSON.stringify(alive));
 
   console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
   process.exit(failed === 0 ? 0 : 1);
