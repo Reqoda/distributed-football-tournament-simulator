@@ -9,8 +9,8 @@ fault tolerance, persistence and measurement.
 
 ## Status
 
-Early development. **Stage 1 and 2 of 8** (core loop, fault tolearance) are done;
-Stage 3 (PostgreSQL) is next.
+Early development. **Stages 1 and 2 of 8** (core loop, fault tolerance) are done;
+stage 3 (PostgreSQL) is next.
 See [ROADMAP.md](ROADMAP.md) for the plan and [ARCHITECTURE.md](ARCHITECTURE.md)
 for the design decisions and their trade-offs.
 
@@ -30,6 +30,12 @@ The fault test needs its own coordinator with a short lease and no worker:
 ```bash
 LEASE_MS=1000 npm run coordinator   # terminal 1
 LEASE_MS=1000 npm run fault         # terminal 2
+```
+
+A worker on another machine only needs the coordinator's address:
+
+```bash
+COORDINATOR_URL=http://192.168.1.10:3000 WORKER_ID=athlon npm run worker
 ```
 
 ## Layout

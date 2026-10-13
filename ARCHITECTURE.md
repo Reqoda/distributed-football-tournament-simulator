@@ -114,9 +114,9 @@ stage 2 can hand the same task to a second worker.
 ### `store.js` is a four-function contract
 `server.js` only knows `add`, `get`, `claimNext` and `complete`, and the shapes
 they return (`complete` gives `{ ok, task }` or `{ ok: false, reason }`). It
-does not know where tasks are kept. Stage 3 replaces the in-memory `Map` with PostgreSQL behind the same four
-functions. They will become asynchronous, so `server.js` will need `await`, but
-it still will not know where tasks are kept.
+does not know where tasks are kept. Stage 3 replaces the in-memory `Map` with PostgreSQL 
+behind the same four functions. They will become asynchronous, so `server.js` will need 
+`await`, but nothing else in it changes.
  
 ### Known limitations
 - Tasks live in memory and are lost when the coordinator restarts. (stage 3)
@@ -152,16 +152,32 @@ produce the same answer.
 
 ### A worker drops a result the coordinator rejects
 If a worker finishes after it lost its task (the lease ran out and the task is done 
-or runs under another worker), the coordinator answers 409. The worker logs it, throws 
-the result away and asks for new work, without waiting: this is a normal situation, not an error.
-Any other unexpected status is treated as an error, like a failed request.
+or runs under another worker), the coordinator answers `409`. The worker logs it,
+throws the result away and asks for new work, without waiting: this is a normal
+situation, not an error. Any other unexpected status is treated as an error, like a
+failed request.
 
 ### Tests
 - `npm run fault`: needs a fresh coordinator started with `LEASE_MS=1000` and no
   worker. A fake worker takes a task and never reports; a second one gets it
-  after the lease expires and checks that only the current holder can report a result.
+  after the lease expires and gets it after the lease expires. It also checks that
+  only the current holder of a task can report its result.
 - `npm run determinism`: same seed gives the same result, different seeds give
   different scores, and every new task gets a seed.
+
+### Only the worker that holds a task can report its result
+A result is sent as `POST /tasks/:id/result?worker=<name>`, and `complete`
+accepts it only if the task is running and its `workerId` is that worker. A late
+worker is rejected with `409` even while the task runs under someone else, so a
+stale result can never overwrite or be mixed with the current holder's. If the
+lease ran out but nobody else took the task, the late result is still accepted:
+the work is not wasted. Status codes: `404` unknown task, `409` not running or
+not the owner, `400` missing `?worker`.
+
+### Claiming is a POST
+Claiming changes state (it starts a lease), so it is `POST /tasks/claim?worker=<name>`
+and not a GET, which must be safe to repeat or retry. It answers `200` with the
+task, `204` when there is no work, and `400` when `?worker` is missing.
 
 ### Known limitations
 - There is no heartbeat. A worker cannot extend its lease, so `LEASE_MS` must be
@@ -180,20 +196,6 @@ Any other unexpected status is treated as an error, like a failed request.
   the same id are treated as one.
 - `server.js` answers every unexpected error with `400`, including bugs in the
   store and, from stage 3, database failures. (stage 3)
-
-### Only the worker that holds a task can report its result
-A result is sent as `POST /tasks/:id/result?worker=<name>`, and `complete`
-accepts it only if the task is running and its `workerId` is that worker. A late
-worker is rejected with `409` even while the task runs under someone else, so a
-stale result can never overwrite or be mixed with the current holder's. If the
-lease ran out but nobody else took the task, the late result is still accepted:
-the work is not wasted. Status codes: `404` unknown task, `409` not running or
-not the owner, `400` missing `?worker`.
-
-### Claiming is a POST
-Claiming changes state (it starts a lease), so it is `POST /tasks/claim?worker=<name>`
-and not a GET, which must be safe to repeat or retry. It answers `200` with the
-task, `204` when there is no work, and `400` when `?worker` is missing.
 
 ## Task unit **[OPEN]**
 
