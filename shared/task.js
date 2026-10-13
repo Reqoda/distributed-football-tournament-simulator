@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto');
 //   pending: waiting in the queue
 //   running: handed to a worker, result not received yet
 //   done:    result received
-// Stage 2 will add a way for 'running' tasks to return to 'pending'
+// If a worker dies, its task's lease runs out and the task goes back to 'pending' so another worker can take it.
 // when a worker dies.
 const STATUS = Object.freeze({
   PENDING: 'pending',
@@ -21,6 +21,8 @@ const STATUS = Object.freeze({
 //   workerId:  string | null, // which worker took it
 //   result:    object | null, // what the worker sent back
 //   createdAt: number,        // ms since epoch
+//   leaseExpiresAt: number | null, // while running: when the claim runs out (ms since epoch)
+//   attempts:  number        // how many times a worker has claimed it
 // }
 function createTask(payload) {
   return {
@@ -30,6 +32,8 @@ function createTask(payload) {
     workerId: null,
     result: null,
     createdAt: Date.now(),
+    leaseExpiresAt: null,
+    attempts: 0
   };
 }
 

@@ -10,6 +10,7 @@
   "scripts": {
     "coordinator": "node coordinator/server.js",
     "worker": "node worker/worker.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "fault": "node scripts/fault-test.js"
   }
 }

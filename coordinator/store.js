@@ -7,6 +7,10 @@ const { STATUS, createTask } = require('../shared/task');
 // A Map keeps insertion order, so the oldest pending task is found first (FIFO).
 const tasks = new Map();
 
+// How long a worker may hold a task before the coordinator takes it back.
+// Override with LEASE_MS (the fault test uses a short one).
+const LEASE_MS = Number(process.env.LEASE_MS) || 30_000;
+
 function add(payload) {
   const task = createTask(payload);
   tasks.set(task.id, task);
@@ -24,14 +28,30 @@ function get(id) {
 // Note: this scans from the oldest task, so it slows down as finished tasks
 // pile up. That is fine for now; the database version fixes it with an index.
 function claimNext(workerId) {
+  const now = Date.now();
+  requeueExpired(now);
+
   for (const task of tasks.values()) {
     if (task.status === STATUS.PENDING) {
       task.status = STATUS.RUNNING;
       task.workerId = workerId;
+      task.leaseExpiresAt = now + LEASE_MS;
+      task.attempts += 1;
       return task;
     }
   }
   return null;
+}
+
+// Puts every running task whose lease has run out back in the queue.
+function requeueExpired(now) {
+  for (const task of tasks.values()) {
+    if (task.status === STATUS.RUNNING && task.leaseExpiresAt <= now){
+      task.status = STATUS.PENDING;
+      task.workerId = null;
+      task.leaseExpiresAt = null;
+    }
+  }
 }
 
 // Stores a worker's result. Only a running task can be completed.
@@ -44,6 +64,7 @@ function complete(id, result) {
 
   task.status = STATUS.DONE;
   task.result = result;
+  task.leaseExpiresAt = null;
   return { ok: true, task };
 }
 
