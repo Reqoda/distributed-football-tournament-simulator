@@ -35,6 +35,15 @@ async function main() {
         body: JSON.stringify(result),
       });
 
+      if (post.status === 409) {
+        console.log(`task ${task.id.slice(0, 8)} is no longer owned by this worker. results were not accepted by coordinator (HTTP ${post.status})`);
+        continue;
+      }
+
+      if (post.status !== 200) {
+        throw new Error(`unexpected HTTP ${post.status} from /tasks/${task.id}/result`);
+      }
+
       console.log(`task ${task.id.slice(0, 8)} -> result sent (HTTP ${post.status})`);
     } catch (err) {
       console.error('error:', err.message);

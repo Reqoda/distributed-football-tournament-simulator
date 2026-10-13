@@ -68,7 +68,7 @@ twice produces the same result.
 ### Pluggable `runTask()`
 v1 uses a statistical model (Poisson / Dixon-Coles); v2 uses an ML model.
 The worker and the coordinator do not change. The ML model is trained in a
-separate repository (`football-strenght-model`) and shipped as `.npy` weights;
+separate repository (`football-strength-model`) and shipped as `.npy` weights;
 workers run inference with NumPy only, so old CPUs like the Athlon do not
 hit AVX dependency problems.
 
@@ -110,13 +110,68 @@ does not know where tasks are kept. Stage 3 replaces the in-memory `Map` with
 PostgreSQL behind the same four functions, so `server.js` does not change.
  
 ### Known limitations
-- The worker does not check the response code of its result upload; a rejected
-  result is only logged. (stage 2)
-- If a worker dies, its task stays `running` forever; nothing returns it to the
-  queue. (stage 2)
 - Tasks live in memory and are lost when the coordinator restarts. (stage 3)
 - `claimNext` scans from the oldest task, so it slows down as finished tasks
   pile up. (stage 3, with an index)
+
+## Stage 2: fault tolerance
+
+What exists: a task that a worker takes but never finishes goes back to the
+queue, and running the same task twice gives the same result.
+
+### A claim is a lease
+When `claimNext` gives a task to a worker it also sets `leaseExpiresAt` to
+`now + LEASE_MS` (default 30 s, override with the `LEASE_MS` environment
+variable) and increases `attempts`. If the result does not arrive before the
+deadline, the coordinator takes the task back. Only the coordinator ever
+compares times, using its own clock, so the clocks of the workers do not matter.
+
+### Expired leases are noticed when a worker asks for work
+`claimNext` first calls `requeueExpired(now)`, which puts every running task
+whose lease has run out back to `pending`, and only then looks for a task to
+hand out. There is no background timer, so there is no second thing that can
+run at the same time as the claim loop. A requeued task keeps its place in the
+queue, so it is the first one to be retried. `attempts` is not reset: it counts
+how many times the task has been claimed.
+
+### Re-running is safe because of seeds
+The seed is stored in the task's payload (`payload.seed`). `createTask` adds a
+random one unless the caller provides one, and `runTask` builds a replayable
+random number generator from it (`worker/rng.js`), so the same payload always
+gives the same result. If two workers end up running the same task, they
+produce the same answer.
+
+### A worker drops a result the coordinator rejects
+If a worker finishes after its lease ran out, the coordinator answers `409`
+when the task is already done. The worker logs it, throws the result away and
+asks for new work, without waiting: this is a normal situation, not an error.
+Any other unexpected status is treated as an error, like a failed request.
+
+### Tests
+- `npm run fault`: needs a fresh coordinator started with `LEASE_MS=1000` and no
+  worker. A fake worker takes a task and never reports; a second one gets it
+  after the lease expires.
+- `npm run determinism`: same seed gives the same result, different seeds give
+  different scores, and every new task gets a seed.
+
+### Known limitations
+- There is no heartbeat. A worker cannot extend its lease, so `LEASE_MS` must be
+  longer than the longest task. Node.js runs a worker's computation on one
+  thread, so a timer that sends heartbeats cannot run while the computation is
+  running. This will matter in stage 4, when tasks get longer. A heartbeat would
+  need the computation to run in a separate thread (`worker_threads`) or a longer
+  lease.
+- `GET /tasks/:id` shows the stored state. A task whose lease has run out still
+  looks `running` until the next worker asks for work.
+- A late result is accepted if the task is `running` again under another worker,
+  because `complete` only checks the status, not who sent the result. This is
+  harmless because both results are the same, but `workerId` then names the
+  worker that claimed the task last, which is not always the one that delivered
+  the result.
+- `attempts` is counted but nothing limits it. A task that crashes every worker
+  is retried forever.
+- `requeueExpired` goes through all tasks on every claim, like the search for
+  the next pending task. (stage 3, with an index)
 
 ## Task unit **[OPEN]**
 
