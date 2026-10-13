@@ -48,9 +48,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, 201, { id: task.id });
     }
 
-    // GET /tasks/next?worker=<name>  -> a worker asks for work (pull model).
-    // Returns 204 if there is no work; the worker waits a bit and asks again.
-    if (req.method === 'GET' && url.pathname === '/tasks/next') {
+    // POST /tasks/claim?worker=<name>
+    // returns 204 if there is no work, the worker waits a bit and asks again.
+    if (req.method === 'POST' && url.pathname === '/tasks/claim') {
       const workerId = url.searchParams.get('worker');
       if (!workerId) return send(res, 400, { error: 'missing ?worker=<name>' });
 
@@ -69,21 +69,25 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // POST /tasks/:id/result
+    // POST /tasks/:id/result?worker=<name>
     if (req.method === 'POST') {
       const match = url.pathname.match(/^\/tasks\/([^/]+)\/result$/);
+      const workerId = url.searchParams.get('worker');
+      
       if (match) {
+        if (!workerId) return send(res, 400, { error: 'missing ?worker=<name>' });
         const result = await readJson(req);
-        const outcome = store.complete(match[1], result);
+        const outcome = store.complete(match[1], workerId, result);
         if (!outcome.ok) {
           if (outcome.reason === 'not_found') return send(res, 404, { error: 'task not found' });
-          return send(res, 409, { error: 'task is not running' });
+          if (outcome.reason === 'not_running') return send(res, 409, { error: 'task is not running' });
+          if (outcome.reason === 'not_owner') return send(res, 409, { error: `task is no longer owned by worker: ${workerId}` });
+          console.error('unexpected result from store.complete:', outcome.reason);
+          return send(res, 500, { error: 'internal server error' });
         }
         return send(res, 200, outcome.task);
       }
     }
-    // '/tasks/next' and '/tasks/:id' can be confused with each other.
-    // The order in which you check them matters.
 
     send(res, 404, { error: 'not found' });
   } catch (err) {

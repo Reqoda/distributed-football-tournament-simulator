@@ -22,7 +22,7 @@ function get(id) {
   return tasks.get(id) ?? null;
 }
 
-// Called when a worker asks for work (GET /tasks/next).
+// Called when a worker asks for work (POST /tasks/claim).
 // Picks the oldest pending task, marks it running for that worker and returns it.
 // Returns null if there is nothing to do.
 // Note: this scans from the oldest task, so it slows down as finished tasks
@@ -56,11 +56,12 @@ function requeueExpired(now) {
 
 // Stores a worker's result. Only a running task can be completed.
 // Returns { ok: true, task } or { ok: false, reason }, where reason is
-// 'not_found' or 'not_running'.
-function complete(id, result) {
+// 'not_found', 'not_running' or 'not_owner'.
+function complete(id, workerId, result) {
   const task = tasks.get(id);
   if (!task) return { ok: false, reason: 'not_found' };
   if (task.status !== STATUS.RUNNING) return { ok: false, reason: 'not_running' };
+  if (task.workerId !== workerId) return { ok: false, reason: 'not_owner'};
 
   task.status = STATUS.DONE;
   task.result = result;

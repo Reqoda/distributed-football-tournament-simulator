@@ -59,11 +59,20 @@ async function main() {
   const missing = await call('GET', '/tasks/does-not-exist');
   check('GET /tasks/:id for an unknown id returns 404', missing.status === 404, `got ${missing.status}`);
 
-  const noTask = await call('POST', '/tasks/does-not-exist/result', { homeGoals: 1 });
+  const noTask = await call('POST', '/tasks/does-not-exist/result?worker=smoke', { homeGoals: 1 });
   check('POST result for an unknown id returns 404', noTask.status === 404, `got ${noTask.status}`);
 
-  const twice = await call('POST', `/tasks/${id}/result`, { homeGoals: 9, awayGoals: 9 });
+  const twice = await call('POST', `/tasks/${id}/result?worker=${task?.workerId}`, { homeGoals: 9, awayGoals: 9 });
   check('POST result for an already finished task is rejected (409)', twice.status === 409, `got ${twice.status}`);
+
+  const noWorker = await call('POST', `/tasks/${id}/result`, { homeGoals: 1, awayGoals: 1 });
+  check('POST result without ?worker is rejected (400)', noWorker.status === 400, `got ${noWorker.status}`);
+
+  const noWorkerClaim = await call('POST', '/tasks/claim');
+  check('POST /tasks/claim without ?worker is rejected (400)', noWorkerClaim.status === 400, `got ${noWorkerClaim.status}`);
+
+  const oldClaim = await call('GET', '/tasks/next?worker=smoke');
+  check('the old GET /tasks/next is gone (404)', oldClaim.status === 404, `got ${oldClaim.status}`);
 
   const after = await call('GET', `/tasks/${id}`);
   check('rejected second result did not overwrite the first', after.body?.result?.homeGoals !== 9, JSON.stringify(after.body?.result));
