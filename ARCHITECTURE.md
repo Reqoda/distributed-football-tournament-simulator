@@ -2,7 +2,7 @@
 
 > Draft. Each stage adds its own decisions to this file.
 > The **[OPEN]** tag marks decisions that are not final yet.
-> This document describes the target design. Look at [Road Map](ROADMAP.md) to what is ready.
+> This document describes the target design. See [Road Map](ROADMAP.md) to what is ready.
 
 ## Goal
 
@@ -68,7 +68,7 @@ twice produces the same result.
 ### Pluggable `runTask()`
 v1 uses a statistical model (Poisson / Dixon-Coles); v2 uses an ML model.
 The worker and the coordinator do not change. The ML model is trained in a
-separate repository (`distributed-football-tournament-simulator`) and shipped as `.npy` weights;
+separate repository (`football-strenght-model`) and shipped as `.npy` weights;
 workers run inference with NumPy only, so old CPUs like the Athlon do not
 hit AVX dependency problems.
 

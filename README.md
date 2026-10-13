@@ -1,6 +1,6 @@
 # distributed-football-tournament-simulator
 
-A small distributed task-processing system that runs on four machines in my
+A small distributed task-processing system that runs on three machines in my
 home network and uses them to simulate a World Cup tournament.
 
 The simulation is the workload, not the point. The point is the distributed
