@@ -3,9 +3,10 @@
 // From another machine:
 //   COORDINATOR_URL=http://192.168.1.10:3000 WORKER_ID=athlon node worker/worker.js
 const { runTask } = require('./simulate');
+const { hostname } = require('node:os');
 
 const COORDINATOR = process.env.COORDINATOR_URL || 'http://localhost:3000';
-const WORKER_ID = process.env.WORKER_ID || `worker-${process.pid}`;
+const WORKER_ID = process.env.WORKER_ID || `worker-${hostname()}-${process.pid}`;
 const IDLE_WAIT_MS = 1000; // wait this long when there is no work
 const ERROR_WAIT_MS = 2000; // wait this long after an error (e.g. coordinator down)
 

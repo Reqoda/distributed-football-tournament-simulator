@@ -82,13 +82,12 @@ const server = http.createServer(async (req, res) => {
           if (outcome.reason === 'not_found') return send(res, 404, { error: 'task not found' });
           if (outcome.reason === 'not_running') return send(res, 409, { error: 'task is not running' });
           if (outcome.reason === 'not_owner') return send(res, 409, { error: `task is no longer owned by worker: ${workerId}` });
-          console.error('unexpected result from store.complete:', outcome.result);
-          return send(res, 500, 'internal server error')
+          console.error('unexpected result from store.complete:', outcome.reason);
+          return send(res, 500, { error: 'internal server error' });
         }
         return send(res, 200, outcome.task);
       }
     }
-    // The order in which you check them matters.
 
     send(res, 404, { error: 'not found' });
   } catch (err) {
