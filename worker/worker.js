@@ -29,7 +29,7 @@ async function main() {
       const task = await res.json();
       const result = runTask(task.payload);
 
-      const post = await fetch(`${COORDINATOR}/tasks/${task.id}/result`, {
+      const post = await fetch(`${COORDINATOR}/tasks/${task.id}/result?worker=${encodeURIComponent(WORKER_ID)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(result),

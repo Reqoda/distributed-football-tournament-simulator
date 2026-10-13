@@ -69,15 +69,21 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // POST /tasks/:id/result
+    // POST /tasks/:id/result?worker=<name>
     if (req.method === 'POST') {
       const match = url.pathname.match(/^\/tasks\/([^/]+)\/result$/);
+      const workerId = url.searchParams.get('worker');
+      
       if (match) {
+        if (!workerId) return send(res, 400, { error: 'missing ?worker=<name>' });
         const result = await readJson(req);
-        const outcome = store.complete(match[1], result);
+        const outcome = store.complete(match[1], workerId, result);
         if (!outcome.ok) {
           if (outcome.reason === 'not_found') return send(res, 404, { error: 'task not found' });
-          return send(res, 409, { error: 'task is not running' });
+          if (outcome.reason === 'not_running') return send(res, 409, { error: 'task is not running' });
+          if (outcome.reason === 'not_owner') return send(res, 409, { error: `task is no longer owned by worker: ${workerId}` });
+          console.error('unexpected result from store.complete:', outcome.result);
+          return send(res, 500, 'internal server error')
         }
         return send(res, 200, outcome.task);
       }

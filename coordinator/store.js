@@ -56,11 +56,12 @@ function requeueExpired(now) {
 
 // Stores a worker's result. Only a running task can be completed.
 // Returns { ok: true, task } or { ok: false, reason }, where reason is
-// 'not_found' or 'not_running'.
-function complete(id, result) {
+// 'not_found', 'not_running' or 'not_owner'.
+function complete(id, workerId, result) {
   const task = tasks.get(id);
   if (!task) return { ok: false, reason: 'not_found' };
   if (task.status !== STATUS.RUNNING) return { ok: false, reason: 'not_running' };
+  if (task.workerId !== workerId) return { ok: false, reason: 'not_owner'};
 
   task.status = STATUS.DONE;
   task.result = result;
