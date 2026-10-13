@@ -22,7 +22,7 @@ function get(id) {
   return tasks.get(id) ?? null;
 }
 
-// Called when a worker asks for work (GET /tasks/next).
+// Called when a worker asks for work (POST /tasks/claim).
 // Picks the oldest pending task, marks it running for that worker and returns it.
 // Returns null if there is nothing to do.
 // Note: this scans from the oldest task, so it slows down as finished tasks

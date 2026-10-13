@@ -68,6 +68,12 @@ async function main() {
   const noWorker = await call('POST', `/tasks/${id}/result`, { homeGoals: 1, awayGoals: 1 });
   check('POST result without ?worker is rejected (400)', noWorker.status === 400, `got ${noWorker.status}`);
 
+  const noWorkerClaim = await call('POST', '/tasks/claim');
+  check('POST /tasks/claim without ?worker is rejected (400)', noWorkerClaim.status === 400, `got ${noWorkerClaim.status}`);
+
+  const oldClaim = await call('GET', '/tasks/next?worker=smoke');
+  check('the old GET /tasks/next is gone (404)', oldClaim.status === 404, `got ${oldClaim.status}`);
+
   const after = await call('GET', `/tasks/${id}`);
   check('rejected second result did not overwrite the first', after.body?.result?.homeGoals !== 9, JSON.stringify(after.body?.result));
 

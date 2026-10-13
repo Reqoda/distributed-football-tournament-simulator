@@ -16,14 +16,14 @@ async function main() {
 
   while (true) {
     try {
-      const res = await fetch(`${COORDINATOR}/tasks/next?worker=${encodeURIComponent(WORKER_ID)}`);
+      const res = await fetch(`${COORDINATOR}/tasks/claim?worker=${encodeURIComponent(WORKER_ID)}`, { method: 'POST' });
 
       if (res.status === 204) {
         await sleep(IDLE_WAIT_MS);
         continue;
       }
       if (res.status !== 200) {
-        throw new Error(`unexpected HTTP ${res.status} from /tasks/next`);
+        throw new Error(`unexpected HTTP ${res.status} from /tasks/claim`);
       }
 
       const task = await res.json();

@@ -48,9 +48,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, 201, { id: task.id });
     }
 
-    // GET /tasks/next?worker=<name>  -> a worker asks for work (pull model).
-    // Returns 204 if there is no work; the worker waits a bit and asks again.
-    if (req.method === 'GET' && url.pathname === '/tasks/next') {
+    // POST /tasks/claim?worker=<name>
+    // returns 204 if there is no work, the worker waits a bit and asks again.
+    if (req.method === 'POST' && url.pathname === '/tasks/claim') {
       const workerId = url.searchParams.get('worker');
       if (!workerId) return send(res, 400, { error: 'missing ?worker=<name>' });
 
@@ -88,7 +88,6 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, outcome.task);
       }
     }
-    // '/tasks/next' and '/tasks/:id' can be confused with each other.
     // The order in which you check them matters.
 
     send(res, 404, { error: 'not found' });

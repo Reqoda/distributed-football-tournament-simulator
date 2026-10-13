@@ -36,7 +36,7 @@ async function addTask() {
   return id;
 }
 
-const claim = (worker) => call('GET', `/tasks/next?worker=${worker}`);
+const claim = (worker) => call('POST', `/tasks/claim?worker=${worker}`);
 const report = (id, worker, result) => call('POST', `/tasks/${id}/result?worker=${worker}`, result);
 
 async function main() {
