@@ -12,6 +12,13 @@ function send(res, status, body) {
   res.end(body === undefined ? undefined : JSON.stringify(body));
 }
 
+// An error the client caused (400). Anything without a status is our bug (500).
+function badRequest(message) {
+  const err = new Error(message);
+  err.status = 400;
+  return err;
+}
+
 // Reads the request body and parses it as JSON. Empty body gives {}.
 function readJson(req) {
   return new Promise((resolve, reject) => {
@@ -19,15 +26,15 @@ function readJson(req) {
     req.on('data', (chunk) => {
       raw += chunk;
       if (raw.length > MAX_BODY_BYTES) {
-        reject(new Error('body too large'));
+        reject(badRequest('body too large'));
         req.destroy();
       }
     });
     req.on('end', () => {
       try {
         resolve(raw ? JSON.parse(raw) : {});
-      } catch (err) {
-        reject(new Error('invalid JSON'));
+      } catch {
+        reject(badRequest('invalid JSON'));
       }
     });
     req.on('error', reject);
@@ -35,9 +42,8 @@ function readJson(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-
   try {
+    const url = new URL(req.url, 'http://localhost');
     // POST /tasks
     if (req.method === 'POST' && url.pathname === '/tasks') {
       const { payload } = await readJson(req);
@@ -73,7 +79,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST') {
       const match = url.pathname.match(/^\/tasks\/([^/]+)\/result$/);
       const workerId = url.searchParams.get('worker');
-      
+
       if (match) {
         if (!workerId) return send(res, 400, { error: 'missing ?worker=<name>' });
         const result = await readJson(req);
@@ -91,7 +97,9 @@ const server = http.createServer(async (req, res) => {
 
     send(res, 404, { error: 'not found' });
   } catch (err) {
-    send(res, 400, { error: err.message });
+    if (err.status === 400) return send(res, 400, { error: err.message });
+    console.error('unexpected error:', err);
+    send(res, 500, { error: 'internal server error' });
   }
 });
 
