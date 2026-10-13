@@ -5,24 +5,28 @@
 
 // Draws a random number from a Poisson distribution (Knuth's method).
 // The classic model for "how many goals does a team score in a match".
-function poisson(lambda) {
+
+const { createRng } = require('./rng');
+
+function poisson(lambda, rng) {
   const limit = Math.exp(-lambda);
   let k = 0;
   let p = 1;
   do {
     k++;
-    p *= Math.random();
+    p *= rng();
   } while (p > limit);
   return k - 1;
 }
 
 // payload: { home, away }  ->  result: { home, away, homeGoals, awayGoals }
 function runTask(payload) {
+  const rng = createRng(payload.seed)
   return {
     home: payload.home,
     away: payload.away,
-    homeGoals: poisson(1.4),
-    awayGoals: poisson(1.1),
+    homeGoals: poisson(1.4, rng),
+    awayGoals: poisson(1.1, rng),
   };
 }
 

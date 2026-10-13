@@ -1,5 +1,5 @@
 // shared/task.js: the task format that coordinator and workers agree on.
-const { randomUUID } = require('node:crypto');
+const { randomUUID, randomInt } = require('node:crypto');
 
 // Task lifecycle: pending -> running -> done
 //   pending: waiting in the queue
@@ -17,17 +17,17 @@ const STATUS = Object.freeze({
 // {
 //   id:        string,        // unique id
 //   payload:   object,        // what to compute, e.g. { home: 'TUR', away: 'BRA' }
+//                             // seed is added automatically if the caller does not give one
 //   status:    STATUS value,
 //   workerId:  string | null, // which worker took it
 //   result:    object | null, // what the worker sent back
 //   createdAt: number,        // ms since epoch
 //   leaseExpiresAt: number | null, // while running: when the claim runs out (ms since epoch)
 //   attempts:  number        // how many times a worker has claimed it
-// }
 function createTask(payload) {
   return {
     id: randomUUID(),
-    payload,
+    payload: { seed: randomInt(0, 2 ** 31 - 1), ...payload},
     status: STATUS.PENDING,
     workerId: null,
     result: null,
