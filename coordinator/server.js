@@ -50,7 +50,7 @@ const server = http.createServer(async (req, res) => {
       if (!isValidPayload(payload)) {
         return send(res, 400, { error: 'payload must be a JSON object' });
       }
-      const task = store.add(payload);
+      const task = await store.add(payload);
       return send(res, 201, { id: task.id });
     }
 
@@ -60,7 +60,7 @@ const server = http.createServer(async (req, res) => {
       const workerId = url.searchParams.get('worker');
       if (!workerId) return send(res, 400, { error: 'missing ?worker=<name>' });
 
-      const task = store.claimNext(workerId);
+      const task = await store.claimNext(workerId);
       if (!task) return send(res, 204);
       return send(res, 200, task);
     }
@@ -69,7 +69,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET') {
       const match = url.pathname.match(/^\/tasks\/([^/]+)$/);
       if (match) {
-        const task = store.get(match[1]);
+        const task = await store.get(match[1]);
         if (!task) return send(res, 404, { error: 'task not found' });
         return send(res, 200, task);
       }
@@ -83,7 +83,7 @@ const server = http.createServer(async (req, res) => {
       if (match) {
         if (!workerId) return send(res, 400, { error: 'missing ?worker=<name>' });
         const result = await readJson(req);
-        const outcome = store.complete(match[1], workerId, result);
+        const outcome = await store.complete(match[1], workerId, result);
         if (!outcome.ok) {
           if (outcome.reason === 'not_found') return send(res, 404, { error: 'task not found' });
           if (outcome.reason === 'not_running') return send(res, 409, { error: 'task is not running' });
@@ -103,4 +103,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => console.log(`coordinator listening on port ${PORT}`));
+server.listen(PORT, () =>
+  console.log(`coordinator listening on port ${PORT} (store: ${store.name})`)
+);

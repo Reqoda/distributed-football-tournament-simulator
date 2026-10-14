@@ -12,6 +12,11 @@
     "worker": "node worker/worker.js",
     "smoke": "node scripts/smoke.js",
     "fault": "node scripts/fault-test.js",
-    "determinism": "node scripts/determinism-test.js"
+    "determinism": "node scripts/determinism-test.js",
+    "store:memory": "node scripts/store-contract-test.js memory",
+    "store:pg": "node scripts/store-contract-test.js pg"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
   }
 }
