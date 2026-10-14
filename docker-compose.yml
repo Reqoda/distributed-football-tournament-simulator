@@ -1,0 +1,28 @@
+# docker-compose.yml: local PostgreSQL for development (stage 3).
+#
+#   docker compose up -d        start the database in the background
+#   docker compose down         stop it (the data is kept)
+#   docker compose down -v      stop it AND delete the data (starts empty next time)
+#
+# db/schema.sql runs only when the database is created from scratch (empty
+# volume). If you change schema.sql, run `docker compose down -v` and start again.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: tournament
+      POSTGRES_PASSWORD: tournament # development only, not a real secret
+      POSTGRES_DB: tournament
+    ports:
+      - "127.0.0.1:5432:5432" # reachable from this machine only
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tournament -d tournament"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:
