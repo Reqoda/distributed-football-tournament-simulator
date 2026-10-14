@@ -88,40 +88,42 @@ hit AVX dependency problems.
 - **Prometheus** for metrics.
 
 ## Stage 1: core loop
- 
+
 What exists: a coordinator with an in-memory task store, workers that pull
 tasks over HTTP, and a smoke test that checks the whole loop.
- 
+
 ### Task lifecycle
 A task moves `pending -> running -> done`. The coordinator makes both
 transitions: `claimNext` marks a task running when a worker asks for work, and
 `complete` marks it done when the result arrives. A worker never changes a
 task's status itself; it only asks for work and reports a result.
- 
+
 ### Claiming a task is atomic
 `claimNext` finds the oldest pending task and marks it running in one step, so
-two workers can never receive the same task. This holds because Node.js runs
-JavaScript on a single thread and the loop contains no `await`, so no other
-request can run between the check and the update. A database will not give this
-for free: stage 3 has to guarantee it explicitly.
- 
+two workers can never receive the same task. In the in-memory store this holds
+because Node.js runs JavaScript on a single thread and the loop contains no
+`await`, so no other request can run between the check and the update. A
+database does not give this for free; the PostgreSQL store guarantees it with a
+single SQL statement (see stage 3).
+
 ### Completing a task that is not running returns 409
 `POST /tasks/:id/result` only succeeds for a running task. A pending or already
 finished task gets `409 Conflict`, an unknown id gets `404`. This keeps a late
 or duplicate result from overwriting the first one, which matters as soon as
 stage 2 can hand the same task to a second worker.
- 
-### `store.js` is a four-function contract
+
+### The store is a four-function contract
 `server.js` only knows `add`, `get`, `claimNext` and `complete`, and the shapes
 they return (`complete` gives `{ ok, task }` or `{ ok: false, reason }`). It
-does not know where tasks are kept. Stage 3 replaces the in-memory `Map` with PostgreSQL 
-behind the same four functions. They will become asynchronous, so `server.js` will need 
-`await`, but nothing else in it changes.
- 
+does not know where tasks are kept. Stage 3 put PostgreSQL behind the same four
+functions; they became asynchronous and `server.js` gained `await`, nothing else.
+
 ### Known limitations
-- Tasks live in memory and are lost when the coordinator restarts. (stage 3)
+- Tasks live in memory and are lost when the coordinator restarts. (solved by the
+  PostgreSQL store in stage 3)
 - `claimNext` scans from the oldest task, so it slows down as finished tasks
-  pile up. (stage 3, with an index)
+  pile up. (solved in the PostgreSQL store with an index; the in-memory store
+  still scans)
 
 ## Stage 2: fault tolerance
 
@@ -134,6 +136,7 @@ When `claimNext` gives a task to a worker it also sets `leaseExpiresAt` to
 variable) and increases `attempts`. If the result does not arrive before the
 deadline, the coordinator takes the task back. Only the coordinator ever
 compares times, using its own clock, so the clocks of the workers do not matter.
+(With PostgreSQL the clock is the database's, see stage 3.)
 
 ### Expired leases are noticed when a worker asks for work
 `claimNext` first calls `requeueExpired(now)`, which puts every running task
@@ -151,7 +154,7 @@ gives the same result. If two workers end up running the same task, they
 produce the same answer.
 
 ### A worker drops a result the coordinator rejects
-If a worker finishes after it lost its task (the lease ran out and the task is done 
+If a worker finishes after it lost its task (the lease ran out and the task is done
 or runs under another worker), the coordinator answers `409`. The worker logs it,
 throws the result away and asks for new work, without waiting: this is a normal
 situation, not an error. Any other unexpected status is treated as an error, like a
@@ -159,9 +162,9 @@ failed request.
 
 ### Tests
 - `npm run fault`: needs a fresh coordinator started with `LEASE_MS=1000` and no
-  worker. A fake worker takes a task and never reports; a second one gets it
-  after the lease expires and gets it after the lease expires. It also checks that
-  only the current holder of a task can report its result.
+  worker. A fake worker takes a task and never reports; a second one gets the task
+  after the lease expires. It also checks that only the current holder of a task
+  can report its result. With PostgreSQL the table must be empty first.
 - `npm run determinism`: same seed gives the same result, different seeds give
   different scores, and every new task gets a seed.
 
@@ -190,12 +193,115 @@ task, `204` when there is no work, and `400` when `?worker` is missing.
   looks `running` until the next worker asks for work.
 - `attempts` is counted but nothing limits it. A task that crashes every worker
   is retried forever.
-- `requeueExpired` goes through all tasks on every claim, like the search for
-  the next pending task. (stage 3, with an index)
+- `requeueExpired` goes through all tasks on every claim in the in-memory store.
+  (solved in the PostgreSQL store with an index)
 - Worker ids are names chosen by the workers, not authenticated. Two workers with
   the same id are treated as one.
-- `server.js` answers every unexpected error with `400`, including bugs in the
-  store and, from stage 3, database failures. (stage 3)
+
+## Stage 3: PostgreSQL
+
+What exists: tasks live in a PostgreSQL table and survive a coordinator
+restart. Without `DATABASE_URL` the coordinator still runs with the in-memory
+store, which keeps development and the quick tests free of Docker.
+
+### Two stores, one contract
+`coordinator/store.js` only picks one of two modules: `store-pg.js` when
+`DATABASE_URL` is set, `store-memory.js` otherwise. Both export the same four
+functions and return the same task shape (camelCase fields, times as ms since
+epoch), and every function is `async`, so a caller that forgets `await` breaks
+with both. `npm run store:memory` and `npm run store:pg` run the same checks
+against each, so the two cannot drift apart silently. The `pg` module is loaded
+only when PostgreSQL is used.
+
+### The schema carries rules, not only data
+`db/schema.sql` creates one table, `tasks`. Besides the columns it holds three
+`CHECK` rules: `status` is one of `pending`, `running`, `done`; a `running` task
+always has an owner and a lease deadline; a `done` task always has a result and
+a finish time. A bug that writes a half-finished row is refused by the database
+instead of being stored. `created_at` defaults to `clock_timestamp()` rather than
+`now()`: `now()` is frozen for a whole transaction, so tasks inserted together
+would tie and lose their first-in-first-out order.
+
+`claimed_at` and `finished_at` are for information and nothing reads them yet.
+`finished_at` is the moment the coordinator accepted the result, not the moment
+the worker finished computing, and `claimed_at` is the latest claim only. They
+are not a measure of compute time. That will come from the worker itself
+(stage 6, see the roadmap).
+
+### One statement per state change
+Claiming, requeueing and completing are each a single SQL statement, so two
+requests, or two coordinators, can never both win the same task:
+
+- **Claim:** `UPDATE ... WHERE id = (SELECT id ... WHERE status = 'pending'
+  ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *`.
+- **Requeue:** one set-based `UPDATE` for every running task whose lease has
+  run out. It runs at the start of each claim, so expiry is still noticed lazily,
+  as in stage 2.
+- **Complete:** the commit rule from stage 2 is the `WHERE` clause
+  (`id = $1 AND status = 'running' AND worker_id = $2`). When it matches no row,
+  a second `SELECT` only works out the reason (`not_found`, `not_running` or
+  `not_owner`) for the error message. The task can change between the two
+  statements, so the reason can be slightly out of date. That is fine for a
+  message; the commit itself is never affected.
+
+`SKIP LOCKED` is about speed, not correctness. Without it PostgreSQL also never
+hands one task to two claims: a claim that waits on a locked row re-checks it and
+moves on. But claims then queue behind each other. In a local micro-benchmark
+(16 clients, each holding its row for 10 ms) the claim query ran at about 1270
+transactions per second with `SKIP LOCKED` and about 88 without. Treat the numbers
+as an indication for one machine, not a result.
+
+Two partial indexes keep these queries small however many finished tasks pile up:
+one on pending tasks by `created_at` (the oldest pending task), one on running
+tasks by `lease_expires_at` (expired leases). This replaces the full scans of the
+in-memory store.
+
+### The database clock decides when a lease ends
+`lease_expires_at` is set with `now() + LEASE_MS` and compared with `now()`, both
+on the database. The coordinator does not compare times in this store, so
+nothing depends on its clock either.
+
+### Errors: 400 for the client, 500 for us
+An error the client caused (bad JSON, a body over 1 MB) is created with
+`status = 400` and sent back with its message. Any other error is a bug or a
+failure on our side, such as a database that cannot be reached: it is logged on
+the server and the client only gets `{ "error": "internal server error" }`, so
+table and column names never leave the coordinator. The request URL is parsed
+inside the `try` block, so a malformed request line or `Host` header gets an
+answer instead of crashing the process. A body that is too large is also `400`,
+not `413`, because the connection is closed to stop reading it and the client
+would never see the status.
+
+The PostgreSQL pool has an `error` handler. A broken idle connection (database
+restarted, network cut) emits an event on the pool, and an unhandled one would
+terminate the process.
+
+### Ids
+`id` is a `uuid`. Asking PostgreSQL for `id = 'abc'` is an error, not an empty
+result, so `get` and `complete` answer ids that cannot exist with "not found"
+before touching the database.
+
+### Tests
+- `npm run store:memory` and `npm run store:pg` (the second one empties the
+  table): adding, claiming in order, ownership, leases, a late result, and 30
+  simultaneous claims for 20 tasks.
+- The other tests (`smoke`, `determinism`, `fault`) pass with both stores.
+- Checked by hand: kill the coordinator with tasks running and pending; after the
+  restart both are still there, and the running one goes to another worker once
+  its lease runs out (`attempts` 2).
+
+### Known limitations
+- There are no migrations. `db/schema.sql` is loaded only when the database is
+  created, so a change means `docker compose down -v` and losing the data. This
+  is acceptable while the schema is still moving.
+- Expired leases are still noticed only when a worker asks for work, so
+  `GET /tasks/:id` can show a stale `running`.
+- A finished run leaves its tasks in the table, so the next `fault` run needs an
+  empty one.
+- The coordinator is still a single process (see the SPOF decision above). The
+  database could support several, but nothing has been designed or tested for it.
+- The connection string and password in `docker-compose.yml` are for local
+  development only.
 
 ## Task unit **[OPEN]**
 
